@@ -334,6 +334,11 @@ class FileLiveRunService:
                 creationflags=creation_flags,
                 env={
                     **os.environ,
+                    # Force the child to use UTF-8 for stdio AND open() defaults.
+                    # Windows defaults to cp1252 which crashes on non-Latin chars
+                    # (e.g. γ, β, ∑) commonly produced by paper-understanding.
+                    "PYTHONIOENCODING": "utf-8",
+                    "PYTHONUTF8": "1",
                     "REPROLAB_GPU_MODE": request.gpuMode,
                     **({"REPROLAB_LLM_PROVIDER": request.provider} if request.mode == "sdk" else {}),
                     **(
@@ -1031,7 +1036,7 @@ def write_status(status, error=None, completed_at=None):
     existing = {{}}
     if status_path.exists():
         try:
-            existing = json.loads(status_path.read_text())
+            existing = json.loads(status_path.read_text(encoding="utf-8"))
         except Exception:
             existing = {{}}
     payload = {{
@@ -1043,7 +1048,7 @@ def write_status(status, error=None, completed_at=None):
         payload["completedAt"] = completed_at
     if error:
         payload["error"] = error
-    status_path.write_text(json.dumps(payload, indent=2))
+    status_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 def finalize_benchmark():
     # Replace the staged benchmark placeholder with the measured values from the
@@ -1058,14 +1063,14 @@ def finalize_benchmark():
         report_md = report_dir / "final_report.md"
         if not report_json.exists():
             return
-        fr = json.loads(report_json.read_text())
+        fr = json.loads(report_json.read_text(encoding="utf-8"))
         # Mirror the canonical report into the demo run dir so the report viewer
         # and the backend's _final_report_path resolve the measured version.
         if report_dir != output_dir:
-            (output_dir / "final_report.json").write_text(report_json.read_text())
+            (output_dir / "final_report.json").write_text(report_json.read_text(), encoding="utf-8")
             if report_md.exists():
-                (output_dir / "final_report.md").write_text(report_md.read_text())
-        existing = json.loads(status_path.read_text()) if status_path.exists() else {{}}
+                (output_dir / "final_report.md").write_text(report_md.read_text(), encoding="utf-8")
+        existing = json.loads(status_path.read_text(encoding="utf-8")) if status_path.exists() else {{}}
         bench = dict(existing.get("benchmark") or {{}})
         rv = fr.get("rubric_verification") or {{}}
         base_rv = fr.get("baseline_rubric_verification") or {{}}
@@ -1093,7 +1098,7 @@ def finalize_benchmark():
             "baselineRubricAreas": base_rv.get("areas") or [],
         }})
         existing["benchmark"] = bench
-        status_path.write_text(json.dumps(existing, indent=2))
+        status_path.write_text(json.dumps(existing, indent=2), encoding="utf-8")
     except Exception:
         pass
 

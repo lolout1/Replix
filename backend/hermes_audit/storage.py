@@ -27,7 +27,10 @@ class HermesAuditStorage:
 
     def save_report(self, report: HermesAuditReport) -> Path:
         path = self._report_path(report)
-        path.write_text(report.model_dump_json(indent=2))
+        # Force UTF-8: Python's pathlib.write_text defaults to the locale
+        # codec (cp1252 on Windows), which can't encode non-Latin characters
+        # commonly found in paper text (e.g. γ, β, ∑) and will crash here.
+        path.write_text(report.model_dump_json(indent=2), encoding="utf-8")
         index = self.load_index()
         key = f"{report.scope.value}:{report.target}"
         index[key] = {
@@ -36,10 +39,10 @@ class HermesAuditStorage:
             "recommended_intervention": report.recommended_intervention.value,
             "summary": report.summary,
         }
-        self._index_path.write_text(json.dumps(index, indent=2))
+        self._index_path.write_text(json.dumps(index, indent=2), encoding="utf-8")
         return path
 
     def load_index(self) -> dict[str, Any]:
         if not self._index_path.exists():
             return {}
-        return json.loads(self._index_path.read_text())
+        return json.loads(self._index_path.read_text(encoding="utf-8"))

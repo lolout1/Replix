@@ -616,8 +616,7 @@ class RunpodBackend(RuntimeBackend):
                 check=False,
                 capture_output=True,
                 text=True,
-                timeout=10,
-            ).stdout.strip()
+                timeout=10, encoding="utf-8", errors="replace",).stdout.strip()
         except Exception:
             return ""
         if derived.startswith(("ssh-ed25519 ", "ssh-rsa ", "ecdsa-sha2-")):

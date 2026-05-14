@@ -113,8 +113,7 @@ class GitWorktreeManager:
             command,
             check=False,
             capture_output=True,
-            text=True,
-        )
+            text=True, encoding="utf-8", errors="replace",)
         if result.returncode != 0:
             raise GitWorktreeError(
                 f"Git command failed with exit code {result.returncode}",
