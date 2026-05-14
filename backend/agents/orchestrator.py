@@ -271,7 +271,7 @@ class PipelineState:
         # bridge polls this file concurrently. Write-then-rename guarantees a
         # reader never observes a truncated checkpoint.
         tmp_path = path.with_name(f"{path.name}.tmp")
-        tmp_path.write_text(json.dumps(data, indent=2))
+        tmp_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
         tmp_path.replace(path)
         logger.info("Checkpoint saved: stage=%s path=%s", self.stage.value, path)
         return path
@@ -282,7 +282,7 @@ class PipelineState:
         path = runs_root / project_id / "pipeline_state.json"
         if not path.exists():
             return None
-        data = json.loads(path.read_text())
+        data = json.loads(path.read_text(encoding="utf-8"))
         state = cls(project_id=data["project_id"])
         state.stage = PipelineStage(data["stage"])
         state.assumption_ledger = data.get("assumption_ledger", [])
@@ -782,17 +782,17 @@ class ReproLabOrchestrator:
             fpath = Path(fallback_file)
             if fpath.exists():
                 logger.info("Reading agent output from file: %s", fpath)
-                return json.loads(fpath.read_text())
+                return json.loads(fpath.read_text(encoding="utf-8"))
             # Also check if agent used relative path from its cwd
             # (creates nested runs/project_id/runs/project_id/file)
             nested = self._project_dir / fpath.name
             if nested.exists():
                 logger.info("Reading agent output from nested file: %s", nested)
-                return json.loads(nested.read_text())
+                return json.loads(nested.read_text(encoding="utf-8"))
             # Search recursively for the file
             for found in self._project_dir.rglob(fpath.name):
                 logger.info("Reading agent output from found file: %s", found)
-                return json.loads(found.read_text())
+                return json.loads(found.read_text(encoding="utf-8"))
 
         raise ValueError(f"No JSON found in agent output: {text[:200]}")
 
@@ -979,9 +979,37 @@ class ReproLabOrchestrator:
         out_file = self._project_dir / "paper_claim_map.json"
         prompt = (
             f"Analyze the paper for project {self.project_id}.\n"
-            f"The parsed paper content is in: {self._project_dir}\n"
-            f"Read the parsed sections and extract the full PaperClaimMap.\n"
-            f"Return the JSON in your response AND write it to {out_file}"
+            f"The parsed paper content is in: {self._project_dir}\n\n"
+            f"Read the parsed sections and produce a PaperClaimMap. "
+            f"Return ONLY a single JSON object matching this exact schema, with no surrounding prose:\n\n"
+            "{\n"
+            '  "core_contribution": "<one-paragraph description>",\n'
+            '  "claims": [\n'
+            '    {"method": "...", "dataset": "...", "metric": "...", "expected_result": "..."}\n'
+            "  ],\n"
+            '  "datasets": [\n'
+            '    {"name": "...", "source": "", "download_method": "", "size_estimate": "", "notes": ""}\n'
+            "  ],\n"
+            '  "metrics": [\n'
+            '    {"name": "...", "definition": "...", "target_value": null, "source_section": null}\n'
+            "  ],\n"
+            '  "model_architecture": "...",\n'
+            '  "training_recipe": {\n'
+            '    "optimizer": "", "learning_rate": "", "batch_size": "",\n'
+            '    "epochs_or_steps": "", "scheduler": "", "other_hparams": {}\n'
+            "  },\n"
+            '  "evaluation_protocol": "...",\n'
+            '  "hardware_clues": ["..."],\n'
+            '  "ambiguities": [\n'
+            '    {"assumption_id": "A001", "detail": "...", "chosen_value": null, "evidence": [], "risk": "medium"}\n'
+            "  ]\n"
+            "}\n\n"
+            "Rules:\n"
+            "- Every entry in `datasets`, `metrics`, and `ambiguities` MUST be an OBJECT with the fields shown — NEVER a bare string.\n"
+            "- `risk` must be one of: \"low\", \"medium\", \"high\", \"critical\".\n"
+            "- `assumption_id` follows the pattern A001, A002, ... (one per ambiguity).\n"
+            "- If a field is unknown, use an empty string \"\" (or [] for lists, {} for dicts), not null, unless the schema above shows null.\n"
+            f"- Return the JSON in your response AND write the same JSON to {out_file}.\n"
         )
         output = await self._invoke_agent("paper-understanding", prompt)
         data = self._extract_json(output, fallback_file=str(out_file))
@@ -1651,8 +1679,7 @@ class ReproLabOrchestrator:
             ("git", "-C", str(path), "rev-parse", "--is-inside-work-tree"),
             check=False,
             capture_output=True,
-            text=True,
-        )
+            text=True, encoding="utf-8", errors="replace",)
         return result.returncode == 0 and result.stdout.strip() == "true"
 
     async def run_gate_3(self, state: PipelineState) -> PipelineState:
@@ -1836,13 +1863,13 @@ class ReproLabOrchestrator:
         # Write final artifacts
         (self._project_dir / "research_map.json").write_text(
             state.research_map.model_dump_json(indent=2)
-        )
+        , encoding="utf-8")
         (self._project_dir / "assumption_ledger.json").write_text(
             json.dumps(state.assumption_ledger, indent=2)
-        )
+        , encoding="utf-8")
         (self._project_dir / "decision_log.json").write_text(
             json.dumps(state.decision_log, indent=2)
-        )
+        , encoding="utf-8")
         # Synthesize the deterministic final report — computed PaperBench-style
         # rubric, statistical rigor, and paper-vs-baseline-vs-improved deltas.
         # This is the single source of truth the UI bridge and PaperBench

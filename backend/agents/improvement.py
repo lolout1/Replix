@@ -145,7 +145,7 @@ def run_path_offline(
             "baseline_reward": baseline_reward,
             "improvement": result_data["mean_reward"] - baseline_reward,
         }
-        (path_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
+        (path_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
 
         return PathResult(
             path_id=hypothesis.path_id,

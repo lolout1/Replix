@@ -327,10 +327,10 @@ def train():
         "final_lr": lr,
         "history": metrics_history,
     }
-    (output_dir / "metrics.json").write_text(json.dumps(metrics, indent=2))
+    (output_dir / "metrics.json").write_text(json.dumps(metrics, indent=2), encoding="utf-8")
 
     # Write config
-    (output_dir / "config.json").write_text(json.dumps(cfg, indent=2, default=str))
+    (output_dir / "config.json").write_text(json.dumps(cfg, indent=2, default=str), encoding="utf-8")
 
     print(f"\\nFinal evaluation: mean_reward={mean_eval_reward:.1f} over {cfg[\'eval_episodes\']} episodes")
     print(f"Training time: {elapsed:.1f}s")
@@ -379,17 +379,17 @@ def run_offline(
     _copy_source_pdf_to_code_root(Path(runs_root), project_id, code_dir)
 
     # Write implementation files
-    (code_dir / "train.py").write_text(PPO_TRAIN_PY)
-    (code_dir / "config.json").write_text(PPO_CONFIG_JSON)
+    (code_dir / "train.py").write_text(PPO_TRAIN_PY, encoding="utf-8")
+    (code_dir / "config.json").write_text(PPO_CONFIG_JSON, encoding="utf-8")
 
     # Write Dockerfile
-    (code_dir / "Dockerfile").write_text(environment_spec.dockerfile)
+    (code_dir / "Dockerfile").write_text(environment_spec.dockerfile, encoding="utf-8")
 
     # Track commands
     commands_log = [
         "python train.py",
     ]
-    (code_dir / "commands.log").write_text("\n".join(commands_log))
+    (code_dir / "commands.log").write_text("\n".join(commands_log), encoding="utf-8")
 
     result = BaselineResult(
         mode="implement_from_paper",
@@ -408,7 +408,7 @@ def run_offline(
 
     # Write result
     out_path = Path(runs_root) / project_id / "baseline_result.json"
-    out_path.write_text(result.model_dump_json(indent=2))
+    out_path.write_text(result.model_dump_json(indent=2), encoding="utf-8")
     logger.info("Baseline implementation written to %s", code_dir)
 
     return result
@@ -459,7 +459,7 @@ async def run_with_sdk(
     # Read result from disk or parse from output
     result_path = project_dir / "baseline_result.json"
     if result_path.exists():
-        return BaselineResult(**json.loads(result_path.read_text()))
+        return BaselineResult(**json.loads(result_path.read_text(encoding="utf-8")))
 
     return BaselineResult(
         mode="implement_from_paper",

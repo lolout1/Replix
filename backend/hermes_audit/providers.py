@@ -229,8 +229,7 @@ class NousHermesProvider:
             capture_output=True,
             text=True,
             timeout=self.cli_timeout_seconds,
-            check=False,
-        )
+            check=False, encoding="utf-8", errors="replace",)
         if result.returncode != 0:
             stderr_excerpt = (result.stderr or "").strip()[:500]
             raise RuntimeError(
@@ -482,8 +481,7 @@ class CodexCliProvider:
                 capture_output=True,
                 text=True,
                 timeout=self.cli_timeout_seconds,
-                check=False,
-            )
+                check=False, encoding="utf-8", errors="replace",)
             if result.returncode != 0:
                 stderr_excerpt = (result.stderr or "").strip()[:500]
                 raise RuntimeError(
