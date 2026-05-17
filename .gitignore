@@ -49,8 +49,11 @@ Thumbs.db
 .claude/
 
 # Local run outputs (anchored to repo root — must not match nested
-# source paths like frontend/src/app/api/runs/ or frontend/src/lib/runs/)
+# source paths like frontend/src/app/api/runs/ or frontend/src/lib/runs/).
+# /logs/ is where scripts/dev.sh tees uvicorn + next dev output and where
+# pipeline runs land when REPROLAB_RUNS_ROOT is pointed at that launch folder.
 /runs/
+/logs/
 
 # Windows artifacts
 %APPDATA%/

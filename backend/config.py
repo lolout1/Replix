@@ -23,6 +23,13 @@ class Settings(BaseSettings):
 
     environment: Literal["development", "testing", "production"] = "development"
     database_url: str = "sqlite:///reprolab.db"
+    # Where per-pipeline-run artifacts (Dockerfile, hermes/, baseline/, sandbox
+    # command logs, agent telemetry, dashboard events) get written. Defaults
+    # to "runs" relative to the process cwd for back-compat. The unified
+    # launcher (scripts/dev.sh) sets REPROLAB_RUNS_ROOT=logs/<launch-ts> so
+    # one server boot's pipeline runs all land alongside that boot's
+    # backend.log / frontend.log.
+    runs_root: str = "runs"
     debug: bool = False
     host: str = "127.0.0.1"
     port: int = 8000

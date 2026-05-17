@@ -110,7 +110,14 @@ def _extract_build_error(exc: Exception) -> str:
         if text:
             lines.append(text)
     tail = lines[-40:]
-    msg = getattr(exc, "msg", None) or str(exc)
+    raw_msg = getattr(exc, "msg", None)
+    # docker-py's low-level build path can raise BuildError with the whole
+    # JSON-stream event (a dict) as `msg` instead of just the error string —
+    # coerce so the function honors its `-> str` contract.
+    if isinstance(raw_msg, dict):
+        msg = str(raw_msg.get("error") or raw_msg.get("message") or raw_msg.get("stream") or raw_msg)
+    else:
+        msg = str(raw_msg) if raw_msg else str(exc)
     return msg + "\n" + "\n".join(tail) if tail else msg
 
 

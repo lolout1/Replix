@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+from pathlib import Path
 
 from typing import Any
 
@@ -39,7 +40,7 @@ def _enforce_demo_gate(provided_secret: str | None, configured_secret: str) -> N
 def create_app(*, run_service: Any | None = None) -> FastAPI:
     """Create and configure the FastAPI application."""
     settings = get_settings()
-    service = run_service or FileLiveRunService()
+    service = run_service or FileLiveRunService(runs_root=Path(settings.runs_root))
 
     app = FastAPI(
         title="ReproLab Agent",
