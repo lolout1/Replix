@@ -49,13 +49,23 @@ if [ ! -f "$PY_BIN" ]; then
 fi
 
 # Free :8000 / :3000 from any stale dev server so re-running this script is
-# safe. Uses PowerShell because lsof isn't reliable on Windows + git-bash.
+# safe. Windows path uses PowerShell (lsof is unreliable on Windows + git-bash);
+# macOS / Linux use lsof + kill.
 free_port () {
     local port="$1"
     if command -v powershell.exe >/dev/null 2>&1; then
         powershell.exe -NoProfile -Command \
             "Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id \$_.OwningProcess -Force -ErrorAction SilentlyContinue }" \
             >/dev/null 2>&1 || true
+    elif command -v lsof >/dev/null 2>&1; then
+        # -t prints PIDs only; -i :PORT scopes to that port; -sTCP:LISTEN filters
+        # to the listener (avoids killing transient client sockets).
+        local pids
+        pids="$(lsof -t -i ":$port" -sTCP:LISTEN 2>/dev/null || true)"
+        if [ -n "$pids" ]; then
+            # shellcheck disable=SC2086
+            kill -9 $pids 2>/dev/null || true
+        fi
     fi
 }
 free_port 8000
@@ -90,5 +100,9 @@ echo "[dev.sh] backend pid=$BACKEND_PID  log=$LOG_DIR/backend.log"
 echo "[dev.sh] frontend pid=$FRONTEND_PID log=$LOG_DIR/frontend.log"
 echo "[dev.sh] open http://localhost:3000/lab"
 
-# Block until either child exits.
-wait -n
+# Block until either child exits. `wait -n` would be nicer but it's bash 4.3+
+# and the default /bin/bash on macOS is still 3.2, so we poll with kill -0
+# (which only checks process existence, doesn't actually signal).
+while kill -0 "$BACKEND_PID" 2>/dev/null && kill -0 "$FRONTEND_PID" 2>/dev/null; do
+    sleep 1
+done
