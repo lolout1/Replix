@@ -1,8 +1,8 @@
-# ReproLab - Codex Hackathon ( Austin ) Top Science Contribution Winner !! S/o Abheek Pradhan , Armaan Amatya, Aayush Baniya , Rishi Golla 
+# ReproLab - Codex Hackathon ( Austin ) Top Science Contribution Winner !! 
 
 **Autonomous agent pipeline that reproduces ML papers and explores improvements.**
 
-ReproLab takes a paper (PDF upload, arXiv ID, or DOI), reconstructs its implementation environment inside a Docker or RunPod sandbox, reproduces the core algorithm on the same dataset, launches parallel improvement agents through three verification gates, and emits a scientific benchmark report — a computed PaperBench-style rubric plus a statistical comparison against the paper's claimed results.
+ReproLab takes a paper (PDF upload, arXiv ID, or DOI), reconstructs its implementation environment inside a Docker or RunPod sandbox, reproduces the core algorithm on the same dataset, launches parallel improvement agents through three verification gates, and emits a scientific benchmark report — a computed PaperBench-style rubric plus a statistical comparison against the paper's claimed results. Builders: Abheek Pradhan , Armaan Amatya, Aayush Baniya , Rishi Golla 
 
 ---
 
