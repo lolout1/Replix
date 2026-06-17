@@ -10,7 +10,7 @@ ReproLab takes a paper (PDF upload, arXiv ID, or DOI), reconstructs its implemen
 
 - **FastAPI backend** (`backend/`) — REST API + SSE event stream, agent orchestration, sandbox lifecycle
 - **Next.js lab frontend** (`frontend/`) — live pipeline progress strip, agent timeline, gate chips, final report view
-- **14-stage agent pipeline** — writes checkpoints to `runs/<project_id>/pipeline_state.json`; stages: ingest → paper-understanding → artifact-discovery → environment-detective → reproduction-planner → Gate 1 → baseline-implementation → experiment-runner → Gate 2 → improvement-selection → improvement-paths (parallel) → Gate 3 → research-map → complete
+- **14-stage agent pipeline** — writes checkpoints to `<runs_root>/<project_id>/pipeline_state.json` (default `runs_root` is `./runs`; the dev launcher sets it to `logs/<launch-ts>/` so pipeline runs land alongside the server logs). Stages: ingest → paper-understanding → artifact-discovery → environment-detective → reproduction-planner → Gate 1 → baseline-implementation → experiment-runner → Gate 2 → improvement-selection → improvement-paths (parallel) → Gate 3 → research-map → complete
 - **Three verification gates** — structured pass/fail with dynamic confidence thresholds and supervisor verification
 - **Sandbox execution** — Docker (local, network/memory/CPU controlled) or RunPod GPU pods (remote, configurable GPU type/count/region)
 - **Event-sourced state** — SQLite event store + CQRS projections; pipeline state persisted atomically at each stage
@@ -49,12 +49,14 @@ docker compose up --build
 
 ### Option B — Local development
 
-**Backend**
+One-time setup:
 
 ```bash
 python3.11 -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r backend/requirements.txt
+
+cd frontend && npm ci && cd ..
 ```
 
 Required environment variables (copy from `.env.example` or set in shell):
@@ -68,28 +70,33 @@ export REPROLAB_DEFAULT_SANDBOX=docker  # or runpod / local
 export REPROLAB_RUNPOD_API_KEY=...      # required when sandbox=runpod
 export REPROLAB_RUNPOD_SSH_KEY_PATH=~/.ssh/id_ed25519
 
+# Where per-pipeline-run artifacts get written. Defaults to ./runs.
+# scripts/dev.sh overrides this to logs/<launch-ts>/ so server logs and
+# pipeline runs share one folder per server lifetime.
+# export REPROLAB_RUNS_ROOT=runs
+
 # Database (SQLite default — no setup needed)
 # export REPROLAB_DATABASE_URL=sqlite:///reprolab.db
 ```
 
-Launch the backend:
+**Launch (recommended) — `scripts/dev.sh`**
 
 ```bash
-.venv/bin/uvicorn backend.app:create_app --factory --reload --port 8000
-# Or use the preflight-aware launcher (runs RunPod checks if sandbox=runpod):
-./start.sh
+./scripts/dev.sh
 ```
 
-**Frontend**
+Creates `logs/<YYYYMMDD-HHMMSS>/`, starts `uvicorn` (FastAPI, :8000) and `npm run dev` (Next.js, :3000), and tees their stdout+stderr into `backend.log` / `frontend.log`. Sets `REPROLAB_RUNS_ROOT` to the same folder so any pipeline runs you kick off land at `logs/<launch-ts>/<project_id>/`. A `meta.json` records `started_at`, `ended_at`, pids, git sha, and the sandbox mode. Stop with Ctrl-C — the trap updates `meta.json` and frees the ports.
+
+**Launch (manual fallback — two processes)**
 
 ```bash
+# terminal 1: backend
+.venv/bin/uvicorn backend.app:create_app --factory --reload --port 8000
+# or, for RunPod preflight checks: ./start.sh
+
+# terminal 2: frontend
 cd frontend
-npm ci
-
-# Point the frontend at your running backend
-export REPROLAB_BACKEND_URL=http://127.0.0.1:8000
-
-npm run dev        # starts on http://localhost:3000 (default Next.js port)
+REPROLAB_BACKEND_URL=http://127.0.0.1:8000 npm run dev
 ```
 
 ---
@@ -138,7 +145,17 @@ python -m backend.cli eval <project_id> --paper-metrics '{"mean_reward": 500}'
 
 ## Where Results Land
 
-Each run writes to `runs/<project_id>/`:
+When launched via `scripts/dev.sh`, one folder = one server lifetime:
+
+```
+logs/<launch-ts>/
+├── backend.log         uvicorn stdout+stderr (tee'd live)
+├── frontend.log        next dev stdout+stderr (tee'd live)
+├── meta.json           started_at / ended_at / pids / git_sha / sandbox_mode
+└── <project_id>/       one subfolder per pipeline run kicked off in this launch
+```
+
+Without `scripts/dev.sh` the pipeline writes to `./runs/<project_id>/` (the legacy default — override with `REPROLAB_RUNS_ROOT`). Each per-pipeline-run folder contains:
 
 | File / Dir | Contents |
 |---|---|
@@ -191,10 +208,11 @@ backend/          FastAPI app, 14-stage agent pipeline, sandbox runtimes, evals
 frontend/         Next.js lab UI: pipeline dashboard, agent timeline, report viewer
 tests/            Python test suite (unit, integration, e2e)
 docs/             Architecture notes, setup guide, deployment plan
-runs/             Per-run artifact directories (gitignored, mount as volume in prod)
+logs/             Per-launch dev folders: backend.log + frontend.log + per-run prj_*/ (gitignored, written by scripts/dev.sh)
+runs/             Legacy default per-run root when REPROLAB_RUNS_ROOT is unset (gitignored, mount as volume in prod)
 third_party/      Vendored PaperBench bundles
 docker/           Container entrypoint script
-scripts/          RunPod preflight and utility scripts
+scripts/          dev.sh launcher, RunPod preflight, utility scripts
 ```
 
 ---

@@ -9,6 +9,64 @@ version + date and start a new `[Unreleased]` block above it.
 ## [Unreleased]
 
 ### Added
+- **Dockerfile smoke-import layer — closes the build/runtime visibility gap.**
+  Track 4 validates `docker build` succeeds, but build-success isn't
+  runtime-success: packages can install cleanly and still fail on first
+  `import` (transitive deps that aren't declared in setup.py — e.g.
+  `gymnasium[mujoco]` needing `imageio`, observed live on the demo paper).
+  The `environment-detective` prompts now require the FINAL Dockerfile layer
+  to be a no-network `RUN python -c '<smoke>'` step that imports every
+  declared framework and lightly instantiates the paper's primary entity
+  exactly as the experiment will use it (`gym.make('<env_id>')`, model
+  construction, tokenizer load from local-only path). A failure in that
+  layer surfaces as a build error → **Track 4's existing repair loop fires
+  → env-detective adds the missing dep → rebuild**. Zero new orchestrator
+  code; reuses the build-and-repair loop as the engine. Catches the
+  import-time class of runtime failures at the right stage instead of dying
+  at `baseline_run` minutes later. Reflected in both
+  `ENVIRONMENT_DETECTIVE_PROMPT` (base) and `ENVIRONMENT_DETECTIVE_REPAIR_PROMPT`
+  (repair) so a repair round that touches the smoke layer keeps it intact.
+- **Sandbox execution contract — single source of truth for the agent↔runtime
+  interface.** The reproduction sandbox mounts the project read-only at the
+  container working dir and a separate writable volume at `$OUTPUT_DIR` — but
+  this contract used to live only in the runtime code and the env-var names,
+  not in the agent prompts. So `baseline-implementation` and `improvement-path`
+  routinely wrote scripts that `mkdir results/` and `tee > log.txt` in the
+  read-only mount, and the experiment died on a "Read-only file system" error
+  before any code ran. A new `backend/agents/prompts/_sandbox_contract.py`
+  defines `SANDBOX_EXECUTION_CONTRACT` — a single brace-free, domain-agnostic
+  block stating the mount model, the env vars, and the required write
+  patterns (every output under `$OUTPUT_DIR`; cache-hungry tools redirected via
+  `HF_HOME`/`TRANSFORMERS_CACHE`/`TRITON_CACHE_DIR`/etc.; `metrics.json` under
+  `$OUTPUT_DIR/metrics.json`). The contract is spliced into the three prompts
+  that emit sandbox-executable code (`BASELINE_IMPLEMENTATION_PROMPT`,
+  `IMPROVEMENT_PATH_PROMPT`, `COMPOSITION_AGENT_PROMPT`) right before each
+  `# Output` section — at peak attention as the agent commits to its
+  `commands_to_run`. Identical across the docker, local, and runpod sandbox
+  modes — write to the contract, it works on all three.
+- **Track 4 — environment build-and-repair loop.** The reproduction Dockerfile
+  is now built — and repaired on failure — at the `ENVIRONMENT_BUILT` stage
+  instead of failing tens of minutes later inside `run_experiment`. A build-only
+  `build_image()` primitive (`backend/services/runtime/local_docker.py`)
+  compiles the Dockerfile and returns `(ok, tag, error_text)` for a broken
+  Dockerfile (repairable) or raises `SandboxRuntimeError` for an infrastructure
+  failure (docker daemon down — not repairable). `_run_environment_build_loop`
+  in the orchestrator mirrors the Track 3 re-iteration loop: build → on failure
+  feed the build error back to `environment-detective` in a new **repair mode**
+  → bounded retry, capped by `environment_build_max_attempts` (default 3). When
+  the cap is spent without a buildable image the run does **not** dead-end on
+  `blocked_requires_human` — it is **fail-soft**: `environment_build_ok` stays
+  false, Gate 2's failure is allowed through, and the run completes with an
+  honest partial-reproduction verdict. Opt-in via
+  `environment_build_validation_enabled` (default on); with it disabled, or on a
+  non-docker sandbox, the run behaves exactly as before. The loop runs *within*
+  the `ENVIRONMENT_BUILT` stage (the `PipelineStage` enum stays at 14) and is
+  resume-safe — `environment_build_attempts` / `environment_build_ok` /
+  `environment_build_error` are checkpointed, so a run that died mid-loop picks
+  up where it left off. The `environment-detective` prompt also gained
+  Dockerfile-hardening rules (slim base + one curated apt layer, per-package pip
+  layers, never `COPY` source — reproduction code is volume-mounted) to shrink
+  the loop's workload by avoiding the common "missing system lib" failure class.
 - **Track 3 Phase F.5 — Codex review #2 hardening.** Folded the genuinely
   actionable findings from the final Codex review (the remainder were verified
   false positives — hallucinated code structure, conflated schemas, a test/doc

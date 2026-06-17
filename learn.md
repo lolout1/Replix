@@ -11,6 +11,122 @@ in **Cross-cutting principles** below.
 
 ---
 
+## 2026-05-14 — A "successful" docker build can still ship a broken environment
+
+**Symptom.** A docker+sonnet e2e run on the demo PPO paper sailed past Track 4
+(env built clean attempt 1), got past the sandbox-mount contract fix (script
+wrote correctly to `$OUTPUT_DIR`), and died at the very first `gym.make`:
+`ModuleNotFoundError: No module named 'imageio'` from
+`gymnasium/envs/mujoco/mujoco_rendering.py`. The Dockerfile pinned
+`gymnasium[mujoco]` but `imageio` isn't in gymnasium's `setup.py` for the
+mujoco extra — it's imported at first env load. The build had no way to know.
+
+**Root cause.** Track 4 validates that `docker build` *exits 0*. That only
+proves "pip install didn't crash" — not "every Python module in this image
+actually imports." Lots of pip packages have *transitive runtime imports*
+(here: `imageio` for gymnasium-mujoco; in other papers, `cv2` wanting
+`libGL.so.1`, torch wanting a specific CUDA runtime, etc.) that pass at
+install time and explode at module-load time. Track 4 had no trigger for
+runtime-import failures — so they died downstream at `baseline_run`, with
+no repair feedback.
+
+**Fix.** Force the runtime-import failure into the build phase by making
+the FINAL Dockerfile layer a no-network smoke: `RUN python -c '<imports + a
+minimal instantiation of the paper's primary entity>'`. A failure there is
+a build failure — and Track 4's build-and-repair loop already knows how to
+fix build failures (add the missing dep via env-detective repair mode,
+rebuild). Zero new code; just a prompt rule.
+
+**Lesson.** A repair loop's *trigger event* is as load-bearing as its
+*repair mechanism*. Track 4 had the repair mechanism (env-detective in
+repair mode) but only fired it on `docker build`'s exit code. The
+import-time class of failures was invisible to that trigger. The
+generalization: whenever you have a recovery mechanism, audit *every*
+failure mode it should cover and make sure each has a trigger pointing at
+it — not just the one that motivated building the mechanism in the first
+place.
+
+**Guardrail.** No new tests — the smoke layer is verified by the e2e run
+(if it's missing, the prompt change is in but the agent ignored it; the
+existing prompt-format tests catch import + brace regressions). The next
+demo-paper run is the live regression check — the imageio failure should
+now appear at *build* time, get repaired automatically, and the experiment
+should reach `baseline_run` with a working environment.
+
+## 2026-05-14 — The sandbox mount contract lived in env-var names, not in any prompt
+
+**Symptom.** A docker+sonnet e2e run on the demo PPO paper sailed past Track 4's
+environment build (clean attempt 1), reached `baseline_run`, and died at the very
+first command: `mkdir: cannot create directory '/work/results': Read-only file
+system`. Gate 2 halted on `failed_reproduction`. The reproduction *code* was
+fine — the failure was that the script tried to write outputs under the project
+mount.
+
+**Root cause.** The sandbox runtime enforces a clear mount contract — project
+read-only at `/work`, writable artifact volume at `$OUTPUT_DIR` — but this
+contract existed only implicitly, in env-var names exposed to the container.
+The `baseline-implementation` and `improvement-path` prompts never stated it,
+so the agent wrote scripts assuming the CWD was writable. A load-bearing
+contract that lived only in the runtime's env-var dictionary was advisory to
+the agent, not enforced.
+
+**Fix.** Made the contract a first-class artifact. `backend/agents/prompts/_sandbox_contract.py`
+defines a single brace-free `SANDBOX_EXECUTION_CONTRACT` block — the mount
+model, the env vars, the required write patterns (every output under
+`$OUTPUT_DIR`; cache-hungry tools redirected; metrics.json path pinned). It is
+imported and spliced into every agent prompt that emits sandbox-executable code
+(`baseline-implementation`, `improvement-path`, `composition`), positioned
+right before the `# Output` section at peak attention. Identical across docker,
+local, and runpod — same env vars, same model.
+
+**Lesson.** An interface contract between code that *generates* artifacts (an
+LLM agent) and code that *executes* them (the runtime) must be stated in the
+generator's prompt, not just enforced by the executor. Same lesson as
+"a 'hard cap' in a prompt is advisory unless enforced in code" — but in the
+other direction: a runtime invariant the agent must respect is advisory
+unless stated in the prompt. Put it in one shared module, splice it where it
+matters, and the prompts cannot drift from the runtime.
+
+**Guardrail.** `tests/test_track4_environment_build_repair.py` is unaffected;
+the contract is verified by a focused import-and-format assertion in
+`backend/agents/prompts/__init__.py`'s consumers and by every existing prompt
+test that imports the three updated prompts. The next e2e run on demo_paper.pdf
+is the live regression check.
+
+## 2026-05-14 — The reproduction Dockerfile was never built until it was too late to fix
+
+**Symptom.** `environment-detective` generated the Dockerfile one-shot at the
+`ENVIRONMENT_BUILT` stage, but nothing ran `docker build` until `run_experiment`
+at `BASELINE_RUN` — five stages and tens of minutes later. A broken Dockerfile
+(missing system lib, a non-existent pin like `ale-py 0.8.1`, base-image
+mismatch) burned all that work, then dead-ended the run at Gate 2 with
+`blocked_requires_human`. No run had ever reached the Track 3 flow live.
+
+**Root cause.** The pipeline had a *judge* for the environment
+(`environment-verifier` at Gate 1) but no *builder*. The first real validation
+of the generated artifact happened far downstream from where it was produced,
+so the feedback loop that could fix it never existed — and the terminal state
+for that failure was a human-required halt, not an autonomous recovery.
+
+**Fix.** Build the Dockerfile at the stage that produces it. A build-only
+`build_image()` primitive runs `docker build` at `ENVIRONMENT_BUILT`; on failure
+the build error is fed back to `environment-detective` in a repair mode and the
+build is retried, hard-capped at `environment_build_max_attempts`. After the cap
+the run is **fail-soft** — it proceeds and completes with an honest
+partial-reproduction verdict instead of halting for a human.
+
+**Lesson.** Validate a generated artifact at the stage that generates it, not at
+the stage that first consumes it — the distance between the two is wasted time
+and a feedback loop you don't have. And an autonomous pipeline's terminal state
+for a *recoverable* failure should be an honest verdict, not a halt: a bounded
+repair loop plus fail-soft beats `blocked_requires_human`.
+
+**Guardrail.** `tests/test_track4_environment_build_repair.py` — `build_image`
+returns `(False, …)` for a broken Dockerfile but raises for an infrastructure
+failure; `_run_environment_build_loop` is bounded (capped attempts, repair
+invoked between them) and fail-soft (cap spent → `environment_build_ok` false,
+no raise).
+
 ## 2026-05-14 — A "hard cap" that lived only in a prompt was advisory, not enforced
 
 **Symptom.** The rubric-verifier prompt told the model "no executable code →

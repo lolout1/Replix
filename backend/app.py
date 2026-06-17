@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hmac
+from pathlib import Path
 
 from typing import Any
 
@@ -11,6 +12,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from backend import __version__
+from backend.agents.topology import PipelineTopology, default_topology
 from backend.config import get_settings
 from backend.persistence.database import Database
 from backend.services.approval import ApprovalAction, ApprovalService, ApprovalState
@@ -38,7 +40,7 @@ def _enforce_demo_gate(provided_secret: str | None, configured_secret: str) -> N
 def create_app(*, run_service: Any | None = None) -> FastAPI:
     """Create and configure the FastAPI application."""
     settings = get_settings()
-    service = run_service or FileLiveRunService()
+    service = run_service or FileLiveRunService(runs_root=Path(settings.runs_root))
 
     app = FastAPI(
         title="ReproLab Agent",
@@ -91,6 +93,20 @@ def create_app(*, run_service: Any | None = None) -> FastAPI:
             run_request,
             file_name=file_name,
             content=content,
+        )
+
+    @app.get("/runs")
+    async def list_runs(
+        limit: int = 10,
+        status: str | None = None,
+        q: str | None = None,
+        order_by: str = "updated_at",
+    ) -> list[dict]:
+        return await service.list_runs(
+            limit=limit,
+            status=status,
+            q=q,
+            order_by=order_by,
         )
 
     @app.get("/runs/latest")
@@ -171,6 +187,25 @@ def create_app(*, run_service: Any | None = None) -> FastAPI:
                 "X-Accel-Buffering": "no",
             },
         )
+
+    # ------------------------------------------------------------------ #
+    # Pipeline topology (canonical graph metadata for the frontend)
+    # ------------------------------------------------------------------ #
+
+    @app.get("/pipeline/topology", response_model=PipelineTopology)
+    async def pipeline_topology() -> PipelineTopology:
+        return default_topology()
+
+    # ------------------------------------------------------------------ #
+    # Models (LLM choices surfaced in the upload-view dropdown)
+    # ------------------------------------------------------------------ #
+
+    @app.get("/models")
+    async def list_models() -> list[dict[str, str]]:
+        return [
+            {"id": "sonnet", "label": "Sonnet", "provider": "anthropic"},
+            {"id": "opus", "label": "Opus", "provider": "anthropic"},
+        ]
 
     # ------------------------------------------------------------------ #
     # Phase 2 workspace services (HEAD)

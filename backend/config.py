@@ -23,6 +23,13 @@ class Settings(BaseSettings):
 
     environment: Literal["development", "testing", "production"] = "development"
     database_url: str = "sqlite:///reprolab.db"
+    # Where per-pipeline-run artifacts (Dockerfile, hermes/, baseline/, sandbox
+    # command logs, agent telemetry, dashboard events) get written. Defaults
+    # to "runs" relative to the process cwd for back-compat. The unified
+    # launcher (scripts/dev.sh) sets REPROLAB_RUNS_ROOT=logs/<launch-ts> so
+    # one server boot's pipeline runs all land alongside that boot's
+    # backend.log / frontend.log.
+    runs_root: str = "runs"
     debug: bool = False
     host: str = "127.0.0.1"
     port: int = 8000
@@ -90,6 +97,13 @@ class Settings(BaseSettings):
     # future work.
     rubric_target_score: float = 0.70
     rubric_max_improvement_iterations: int = 2
+
+    # Track 4 — environment build-and-repair loop. Opt-in surface: with these
+    # defaults the Dockerfile is built (and repaired on failure) at
+    # ENVIRONMENT_BUILT instead of failing ~30 min later at BASELINE_RUN. With
+    # validation disabled the run behaves exactly as it did before Track 4.
+    environment_build_validation_enabled: bool = True
+    environment_build_max_attempts: int = 3
 
     # Default sandbox mode for the dashboard's "start a run" form.
     # CLI defaults remain controlled separately by argparse flags.
